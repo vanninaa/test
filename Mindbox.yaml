@@ -1,0 +1,82 @@
+---
+apiVersion: eksctl.io/v1alpha5
+kind: ClusterConfig
+
+metadata:
+  name  : Mindbox-cluster
+  region: eu-north-1                                #выбираем регион (наименьший пинг от москвы)
+
+vpc:                                              
+ subnets:
+   private:
+      eu-north-1a: { id: subnet-0ff156e0c4a6d300c }  # 3 зоны согласно т.з.
+      eu-north-1b: { id: subnet-0549cdab573695c03 }  
+      eu-north-1c: { id: subnet-0426fb4a607393184 }  
+nodeGroups:                                          #создаем нодгруп 
+  - name             : worker1
+    instanceType     : t3.small                      #выбираем наиболее дешевый Instance т.к. в дальнейшем потребление будет 0.1 CPU и 128M
+    desiredCapacity  : 5                             #с 5 нодами согласно т.з.
+    privateNetworking: true
+---    
+apiVersion : apps/v1
+kind: Deployment
+metadata:
+  name: Mindbox-web-deployment-autoscaling       #имя деплоя которое мы будем использовать в autoscaling
+  labels:
+    app : Mindbox-app
+spec:                                             
+  selector:                                       
+    matchLabels:
+      project: Mindbox
+  template:
+    metadata:                                     
+      labels:
+        project: Mindbox                          #Лейблы на подах которые мы будем использовать в autoscaling
+    spec:
+      containers:
+        - name : Mindbox-web
+          image: Mindbox:latest
+          resource:
+            requests:														#старт 64мб оперативки и 0.25 ядра
+             memory: "128Mi"
+             cpu: "400M"                        #если дальнейшем потребление ровное в районе 0.1 CPU, то изначально выделяем 0.4 исходя их т.з. значительно больше ресурсов
+          ports:
+            - containerPort: 80                 #указываем 80 порт т.к. трафик ходит внутри приватной сети а шифрование происходит на уровне route53
+
+---
+apiVersion: autoscaling/v2beta2
+kind: HorizontalPodAutoscaler                  #горизонтальный автоскелинг увеличиваем кол-во подов по мере нагрузки 
+metadata:
+  name: Mindbox-autoscaling
+spec:
+  scaleTargetRef:
+    apiVersion: apps/v2beta1v2
+    kind: Deployment
+    name: Mindbox-web-deployment-autoscaling   #деплоит по имени выше
+  minReplicas: 1                               #минимально 1 под т.к. хотим минимального потребления ресурсов
+  maxReplicas: 5                               #максиум 5
+  metrics:
+  - type: Resource
+    resource:
+      name: cpu
+      target:
+        type: Utilization
+        averageUtilization: 90                           #распределение кол-ва подов происходит в зависимости от максимальной нагрузки на проц в %
+        
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: Mindbox-autoscaling-pod-service
+  labels:
+     env  : prod
+     owner: Mindbox
+spec:
+  selector:
+    project: Mindbox                                    #лайблы подов выше
+  ports:
+    - name      : app-listener
+      protocol  : TCP
+      port      : 80                                   # порт на лодбалансере
+      targetPort: 80                                   # порт на поде
+  type: LoadBalancer
