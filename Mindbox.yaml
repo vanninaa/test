@@ -37,7 +37,7 @@ spec:
         - name : Mindbox-web
           image: Mindbox:latest
           resource:
-            requests:														#старт 64мб оперативки и 0.25 ядра
+            requests:	
              memory: "128Mi"
              cpu: "400M"                        #если дальнейшем потребление ровное в районе 0.1 CPU, то изначально выделяем 0.4 исходя их т.з. значительно больше ресурсов
           ports:
